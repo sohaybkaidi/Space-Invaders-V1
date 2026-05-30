@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Space Invaders - Boss PNG System</title>
+
+<style>
+body {
+    margin: 0;
+    background: black;
+    font-family: Arial;
+    color: white;
+}
+
+canvas {
+    display: block;
+    background: #111;
+    margin-right: 220px;
+}
+
+#sidePanel {
+    position: fixed;
+    right: 0;
+    top: 0;
+    width: 220px;
+    height: 100%;
+    background: rgba(20,20,20,0.95);
+    border-left: 2px solid #444;
+    padding: 15px;
+}
+</style>
+</head>
+
+<body>
+
+<div id="sidePanel">
+<h3>🎮 Controls</h3>
+<p>Enter: Start</p>
+<p>P: Pause</p>
+<p>T: Toggle P2</p>
+<hr>
+<p>P1: ← → Space</p>
+<p>P2: A/D W</p>
+</div>
+
+<canvas id="gameCanvas" width="600" height="400"></canvas>
+
+<script>
+
+// ================= CANVAS =================
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+// ================= IMAGES =================
+const playerImg = new Image(); playerImg.src = "player.png";
+const player2Img = new Image(); player2Img.src = "player2.png";
+const enemyImg = new Image(); enemyImg.src = "enemy.png";
+const gameOverImg = new Image(); gameOverImg.src = "gameover.png";
+
+// 👑 BOSSES PNGS
+const bossImgs = [];
+for (let i = 1; i <= 4; i++) {
+    const img = new Image();
+    img.src = "boss" + i + ".png";
+    bossImgs.push(img);
+}
+
+// ================= GAME STATE =================
+let gameState = "menu";
+let twoPlayers = false;
+
+let wave = 1;
+let score = 0;
+
+// ================= FLAGS =================
+let waveCleared = false;
+let waveTransitioning = false;
+
+// ================= SYSTEMS =================
+let enemyDir = 1;
+let enemyStepCooldown = 0;
+let enemyShootTimer = 0;
+
+// ================= OBJECTS =================
+const SIZE = 40;
+
+let player = { x:200,y:340,speed:5,lives:3 };
+let player2 = { x:300,y:340,speed:5,lives:3 };
+
+let bullets = [];
+let enemyBullets = [];
+let enemies = [];
+let explosions = [];
+
+// 👑 BOSS
+let boss = null;
+
+// ================= INPUT =================
+let keys = {};
+let prevKeys = {};
+
+document.addEventListener("keydown", e => {
+    keys[e.code] = true;
+
+    if (e.code === "Enter") gameState = "playing";
+    if (e.code === "KeyT") twoPlayers = !twoPlayers;
+    if (e.code === "KeyP")
+        gameState = (gameState === "playing") ? "paused" : "playing";
+});
+
+document.addEventListener("keyup", e => keys[e.code] = false);
+
+// ================= ENEMIES =================
+function createEnemies() {
+    enemies = [];
+
+    for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 6; c++) {
+            enemies.push({
+                x: c * 80 + 50,
+                y: r * 50 + 30,
+                w: 30,
+                h: 30,
+                alive: true
+            });
+        }
+    }
+}
+
+// ================= EXPLOSION =================
+function spawnExplosion(x, y) {
+    explosions.push({ x, y, life: 20 });
+}
+
+// ================= NEXT WAVE =================
+function nextWave() {
+    wave++;
+    waveCleared = false;
+    waveTransitioning = false;
+
+    bullets = [];
+    enemyBullets = [];
+
+    // 👑 BOSS EVERY 10 WAVES
+    if (wave % 10 === 0) {
+
+        boss = {
+            x: 200,
+            y: 60,
+            w: 140,
+            h: 100,
+            hp: 120,
+            maxHp: 120,
+            dir: 1,
+            shootTimer: 0,
+            phase: 1,
+
+            // choose boss PNG safely
+            sprite: bossImgs[(Math.floor(wave / 10) - 1) % 4]
+        };
+
+    } else {
+        boss = null;
+        createEnemies();
+    }
+}
+
+// ================= SHOOT =================
+function shoot(p) {
+    bullets.push({ x: p.x + 18, y: p.y, speed: 6 });
+}
+
+// ================= ENEMY MOVEMENT =================
+function updateEnemies() {
+
+    if (boss) return;
+
+    enemyStepCooldown--;
+
+    if (enemyStepCooldown > 0) return;
+
+    enemyStepCooldown = 25;
+
+    let hitEdge = false;
+
+    for (let e of enemies) {
+        if (!e.alive) continue;
+
+        e.x += enemyDir * 10;
+
+        if (e.x <= 0 || e.x >= 570) hitEdge = true;
+    }
+
+    if (hitEdge) {
+        enemyDir *= -1;
+
+        for (let e of enemies) {
+            if (e.alive) e.y += 15;
+        }
+    }
+}
+
+// ================= UPDATE =================
+function update() {
+
+if (gameState !== "playing") return;
+
+// ================= PLAYERS =================
+if (keys["ArrowLeft"]) player.x -= player.speed;
+if (keys["ArrowRight"]) player.x += player.speed;
+
+if (keys["KeyA"]) player2.x -= player2.speed;
+if (keys["KeyD"]) player2.x += player2.speed;
+
+player.x = Math.max(0, Math.min(560, player.x));
+player2.x = Math.max(0, Math.min(560, player2.x));
+
+if (keys["Space"] && !prevKeys["Space"]) shoot(player);
+if (twoPlayers && keys["KeyW"] && !prevKeys["KeyW"]) shoot(player2);
+
+// ================= BULLETS =================
+for (let i = bullets.length - 1; i >= 0; i--) {
+    bullets[i].y -= bullets[i].speed;
+    if (bullets[i].y < 0) bullets.splice(i, 1);
+}
+
+// ================= ENEMY BULLETS =================
+for (let i = enemyBullets.length - 1; i >= 0; i--) {
+    let b = enemyBullets[i];
+    b.y += b.speed;
+
+    if (b.y > 400) enemyBullets.splice(i, 1);
+
+    // player hit
+    if (b.x > player.x && b.x < player.x + SIZE &&
+        b.y > player.y && b.y < player.y + SIZE) {
+        player.lives--;
+        enemyBullets.splice(i, 1);
+        continue;
+    }
+
+    if (twoPlayers &&
+        b.x > player2.x && b.x < player2.x + SIZE &&
+        b.y > player2.y && b.y < player2.y + SIZE) {
+        player2.lives--;
+        enemyBullets.splice(i, 1);
+    }
+}
+
+// ================= ENEMIES =================
+updateEnemies();
+
+// ================= ENEMY SHOOT =================
+enemyShootTimer--;
+
+if (!boss) {
+
+    let shooters = [];
+
+    for (let c = 0; c < 6; c++) {
+        let col = enemies.filter(e =>
+            e.alive && Math.floor((e.x - 50) / 80) === c
+        );
+
+        if (col.length > 0) {
+            shooters.push(col.reduce((a, b) => a.y > b.y ? a : b));
+        }
+    }
+
+    if (enemyShootTimer <= 0 && shooters.length > 0) {
+
+        let s = shooters[Math.floor(Math.random() * shooters.length)];
+
+        enemyBullets.push({
+            x: s.x + 15,
+            y: s.y + 20,
+            speed: 3
+        });
+
+        enemyShootTimer = 40;
+    }
+}
+
+// ================= BULLET COLLISIONS =================
+for (let i = bullets.length - 1; i >= 0; i--) {
+
+    let b = bullets[i];
+
+    // ENEMIES
+    for (let e of enemies) {
+        if (!e.alive) continue;
+
+        if (b.x > e.x && b.x < e.x + 30 &&
+            b.y > e.y && b.y < e.y + 30) {
+
+            e.alive = false;
+            spawnExplosion(e.x, e.y);
+            bullets.splice(i, 1);
+            break;
+        }
+    }
+
+    // BOSS
+    if (boss) {
+        if (b.x > boss.x && b.x < boss.x + boss.w &&
+            b.y > boss.y && b.y < boss.y + boss.h) {
+
+            boss.hp -= 10;
+            bullets.splice(i, 1);
+        }
+    }
+}
+
+// ================= BOSS LOGIC =================
+if (boss) {
+
+    // phase system
+    let hp = boss.hp / boss.maxHp;
+
+    boss.phase = hp < 0.33 ? 3 : hp < 0.66 ? 2 : 1;
+
+    // movement
+    boss.x += boss.dir * (boss.phase === 3 ? 4 : boss.phase === 2 ? 3 : 2);
+
+    if (boss.x <= 0 || boss.x + boss.w >= 600)
+        boss.dir *= -1;
+
+    // attack
+    boss.shootTimer--;
+
+    if (boss.shootTimer <= 0) {
+
+        let count = boss.phase === 1 ? 1 : boss.phase === 2 ? 3 : 5;
+
+        for (let i = 0; i < count; i++) {
+            enemyBullets.push({
+                x: boss.x + boss.w / 2 + (i - 2) * 10,
+                y: boss.y + boss.h,
+                speed: 4
+            });
+        }
+
+        boss.shootTimer = boss.phase === 3 ? 25 : 50;
+    }
+
+    // death
+    if (boss.hp <= 0) {
+        spawnExplosion(boss.x, boss.y);
+        boss = null;
+        nextWave();
+    }
+}
+
+// ================= WAVE CHECK =================
+if (!boss && enemies.every(e => !e.alive)) {
+    if (!waveTransitioning) {
+        waveTransitioning = true;
+
+        setTimeout(() => {
+            nextWave();
+        }, 300);
+    }
+}
+
+// ================= GAME OVER =================
+if (player.lives <= 0 && (!twoPlayers || player2.lives <= 0)) {
+    gameState = "gameover";
+}
+
+prevKeys = { ...keys };
+}
+
+// ================= DRAW =================
+function draw() {
+
+ctx.clearRect(0,0,600,400);
+
+// ENEMIES
+for (let e of enemies) {
+    if (e.alive)
+        ctx.drawImage(enemyImg, e.x, e.y, 30, 30);
+}
+
+// PLAYERS
+ctx.drawImage(playerImg, player.x, player.y, SIZE, SIZE);
+
+if (twoPlayers)
+    ctx.drawImage(player2Img, player2.x, player2.y, SIZE, SIZE);
+
+// BOSS DRAW
+if (boss) {
+
+    ctx.drawImage(boss.sprite, boss.x, boss.y, boss.w, boss.h);
+
+    // HP BAR
+    ctx.fillStyle = "red";
+    ctx.fillRect(150, 10, 300, 10);
+
+    ctx.fillStyle = "lime";
+    ctx.fillRect(150, 10, 300 * (boss.hp / boss.maxHp), 10);
+
+    ctx.fillStyle = "white";
+    ctx.fillText("PHASE " + boss.phase, 270, 35);
+}
+
+// BULLETS
+ctx.fillStyle = "yellow";
+for (let b of bullets)
+    ctx.fillRect(b.x, b.y, 4, 10);
+
+// ENEMY BULLETS
+ctx.fillStyle = "red";
+for (let b of enemyBullets)
+    ctx.fillRect(b.x, b.y, 4, 10);
+
+// HUD
+ctx.fillStyle = "white";
+ctx.fillText("Wave: " + wave, 10, 20);
+}
+
+// ================= LOOP =================
+function loop() {
+update();
+draw();
+requestAnimationFrame(loop);
+}
+loop();
+
+</script>
+
+</body>
+</html>
